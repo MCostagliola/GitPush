@@ -3,7 +3,7 @@ To Run the program, first run modules.py, this will download any and all uninsta
 Do this by runing python .\modules.py in the terminal where the file was downloaded.
 From there, run python .\main.py in the terminal where the file was downloaded.
 There are two types of processing options:
-  Batch Processing & Single Processing
+    Batch Processing & Single Processing
 By default the program is set to process single folders, which contain RGB images.
 To switch to Batch Processing, just click the "Enable Batch Processing" button in the GUI.
 Clicking this button again will disable Batch Processing.
