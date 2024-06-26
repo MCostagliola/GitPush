@@ -11,7 +11,7 @@ There is also an option to "Enable Image Saving"
 The program works by creating a nested folder within the chosen parent folder, which the processed images are then stored in.
 From here comparison and anaylsis is done by looping through this folder of processed images.
 When processing large datasets, this can quickly eat up space, even though the processed images are roughly 1/3 the file size of the RGB images.
-To counteract this, by default, once a folder is processed, it is then deleted. 
+To counteract this, by default, once a folder is processed, it is then deleted.
 This applies to both Single and Batch Processing. The processed image folders are deleted before another folder is processed in the case of Batch Processing.
 Clicking "Enable Image Saving" will disable the deletion of processed image folders.
 If the button is clicked once more, this setting will revert to being disabled.
