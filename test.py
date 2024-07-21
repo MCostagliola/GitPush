@@ -1,0 +1,6 @@
+img,_,_ = pcv.readimage(img_path)
+p1 = pcv.rgb2gray_lab(img, 'a')
+p = cv2.addWeighted(p1, 0.08001, np.zeros(p1.shape, p1.dtype), 100, 245)
+p = pcv.closing(p)
+p = pcv.closing(cv2.bitwise_not(pcv.threshold.otsu(p)))
+p = pcv.closing(p,kernel=pcv.get_kernel(size=(4,4), shape='cross'))
