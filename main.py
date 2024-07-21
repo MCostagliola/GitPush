@@ -1,21 +1,19 @@
 import customtkinter as ctk
-from tkinter import filedialog
 from plantcv import plantcv as pcv
 from plantcv.parallel import WorkflowInputs
 import time
 import numpy as np
 import os
-import imageio.v2 as imageio
 import time
 import xlsxwriter
 import shutil
 from natsort import natsorted
 import sys
-from numba import njit
+import cv2
 
 root = ctk.CTk()
 
-def run_program(path):
+def run_program(path, pathCount):
 
     if batch_trigger == False:
         folder_path = path_var.get()
@@ -26,20 +24,20 @@ def run_program(path):
     extensions = ('.jpg', '.png')
     def ProcessImagesToBinary(inDirectoryPath) -> str:
 
-        outDirectoryPath = os.path.join(inDirectoryPath, 'processed_images').replace("/", "\\")
+        outDirectoryPath = os.path.join(inDirectoryPath, 'processed_images').replace("/", "\\") # Elimintes confusion with python escape codes
         os.makedirs(outDirectoryPath, exist_ok=True)
         print(f'In Path: {inDirectoryPath}\nOut Path: {outDirectoryPath}')
         image_files = pcv.io.read_dataset(inDirectoryPath)
 
         for img_path in image_files:
-
+            root.update()
             ext = os.path.splitext(img_path)[-1].lower()
             if ext in extensions:
                 # Process each image as before
                 args = WorkflowInputs(
                     images=[img_path],
                     names=img_path,
-                    result=rf'yikes',
+                    result='',
                     outdir=rf'{outDirectoryPath}',
                     writeimg=True,
                     debug='none',
@@ -48,19 +46,51 @@ def run_program(path):
 
                 # Debug Params
                 pcv.params.debug = args.debug
-                img, filename, path = pcv.readimage(filename=img_path)
+                image = cv2.imread(img_path)
+                hh, ww = image.shape[:2]
+                maxdim = max(hh, ww)
 
+                # illumination normalize
+                ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+
+                # separate channels
+                y, cr, cb = cv2.split(ycrcb)
+
+                # get background which paper says (gaussian blur using standard deviation 5 pixel for 300x300 size image)
+                # account for size of input vs 300
+                #sigma = int(5 * maxdim / 300)
+                #print('sigma: ',sigma)
+                #gaussian = cv2.GaussianBlur(y, (0, 0), sigma, sigma)
+
+                # subtract background from Y channel
+                #y = (y - gaussian + 100)
+
+                # merge channels back
+                ycrcb = cv2.merge([y, cr, cb])
+
+                #convert to BGR
+                img = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+                '''
                 # Image Processing - example operations
                 a_gray = pcv.rgb2gray_lab(rgb_img=img, channel='a')
                 bin_mask = pcv.threshold.otsu(gray_img=a_gray, object_type='dark')
-                clean_mask = pcv.closing(gray_img=bin_mask)
+                clean_mask = pcv.closing(gray_img=bin_mask)'''
+
+                #img,_,_ = pcv.readimage(img_path)
+                p1 = pcv.rgb2gray_lab(img, 'a')
+                #tweaks needed
+                p = cv2.addWeighted(p1, 0.08001, np.zeros(p1.shape, p1.dtype), 100, 245)
+                p = pcv.closing(p)
+                p = pcv.closing(cv2.bitwise_not(pcv.threshold.otsu(p)))
+                #tweaks needed
+                p = pcv.closing(p,kernel=pcv.get_kernel(size=(4,4), shape='cross'))
 
                 filename = os.path.basename(img_path)
-                pcv.print_image(clean_mask, rf'{outDirectoryPath}\{filename}')
+                pcv.print_image(p, rf'{outDirectoryPath}\{filename}')
 
         return outDirectoryPath
 
-    @njit
+
     def formatCellInfoFromFilename(filename):
         """
         Extracts the information from the filename to create a clear and more presentable string.
@@ -78,7 +108,7 @@ def run_program(path):
             # formatted name could not be parsed, use filename instead
             return filename
 
-    @njit
+
     def writeData(row, col, filename, newPic, oldPic=None):
         """
         Outputs data for a specific plant and rep to the excel sheet.
@@ -122,7 +152,7 @@ def run_program(path):
     temp_time = time.time()
 
     # stores the desired Excel save name
-    savename = "MotionSize"
+    savename = f"MotionSize_{pathCount}"
     # creates the workbook file w/ savename
     workbook = xlsxwriter.Workbook(savename + '.xlsx')
 
@@ -136,8 +166,6 @@ def run_program(path):
         "valign": "vcenter",
         "fg_color": "yellow",
     })
-
-    #start = time.time()
 
     pixelsPerPic = 0 # Set after first pic is collected tuple of dimensions (x, y, z = 3)
 
@@ -169,11 +197,11 @@ def run_program(path):
     row += 2
     # cycle for each image in the folder
     for file in (os.listdir(inDirectoryPath)):
-
+        root.update()
         total_picture_count += 1
         try:
 
-            newPic = imageio.imread(os.path.join(inDirectoryPath, file))
+            newPic, _, _ = pcv.readimage(os.path.join(inDirectoryPath, file))
             if newPic is not None:
 
                 # Set pixelsPerPic, only do this for the first pic
@@ -201,6 +229,7 @@ def run_program(path):
 
                     row += 1
                     oldPic = newPic
+
             else:
 
                 pass
@@ -267,49 +296,54 @@ def run_program(path):
     # Chart Size can be specificed to a resolution by: {'width': 1920, 'height': 1080}, and then adjusted as needed
 
     workbook.close()
-    #easygui.msgbox(f'Processed {total_picture_count} images in {"%0.2f" %(time.time() - start)} seconds')
 
     if save_images == False:
-        shutil.rmtree(inDirectoryPath)
+        shutil.rmtree(inDirectoryPath) #deletes the created folder if save_images is set to false
 
-    print(f'Process Time: {"%0.6f" % (time.time() - temp_time)}\nTotal Time: {"%0.6f" % (time.time()-start)}')
+    print(f'~Process Time: {"%0.3f" % (time.time() - temp_time)}\n~Total Time: {"%0.3f" % (time.time()-start)}')
+    return total_picture_count
 
 #########################
 #~~~~~~~~Widgets~~~~~~~~#
 #########################
 
-class DebugWindow(ctk.CTkToplevel):
-    def __init__(self, master=None):
-        super().__init__(master)
-        self.title("Debug Window")
-    
-        self.text_widget = ctk.CTkTextbox(self, wrap='word')
-        self.text_widget.pack(fill='both', expand=True)
-        
+class DebugWindow:
+    def __init__(self, root):
+        self.debug_window = ctk.CTkTextbox(master=root, state='disabled', 
+                                           border_color='gray40', border_width=2,
+                                           fg_color='gray18',  
+                                           corner_radius=8, width=600, height=190)
+        self.debug_window.place(x=250, y=60)
         # Redirect stdout to the text widget
-        sys.stdout = self
-    
-    def write(self, message):
-        self.text_widget.insert(ctk.END, message)
-        self.text_widget.see(ctk.END)
-        self.update_idletasks()  
-    
-    def flush(self):
-        pass  # Override flush method to do nothing
+        
+        sys.stdout = TextRedirector(self.debug_window, "stdout")
+        sys.stderr = TextRedirector(self.debug_window, "stderr")
 
     def clear(self):
-        self.text_widget.delete('1.0', ctk.END)
-    
-    def close(self):
-        sys.stdout = sys.__stdout__  # Restore original stdout
-        self.destroy()
+        '''Clear the contents of the debug window'''
+        self.debug_window.configure(state=ctk.NORMAL)  # Enable editing
+        self.debug_window.delete('1.0', ctk.END)  # Delete all text
+        self.debug_window.configure(state=ctk.DISABLED)  # Disable editing
+        self.debug_window.update_idletasks() # Update & display/reflect changes on window (if any)
+
+class TextRedirector(object):
+    def __init__(self, widget, tag="stdout"):
+        self.widget = widget
+        self.tag = tag
+
+    def write(self, string):
+        self.widget.configure(state=ctk.NORMAL)  # Enable editing
+        self.widget.insert(ctk.END, string, (self.tag,))
+        self.widget.see(ctk.END)  # Scroll to the end of the text
+        self.widget.configure(state=ctk.DISABLED)  # Disable editing
+        self.widget.update_idletasks()  # Update the widget
 
 
 # Globals
 save_images = False
 batch_trigger = False
 
-
+# Widget functionality code -- enables image saving
 def save_image_trigger():
 
     global save_images
@@ -321,6 +355,7 @@ def save_image_trigger():
     return save_images
 
 
+# Widget functionality code -- enables batch processing
 def trigger_batch_status():
 
     global batch_trigger
@@ -331,51 +366,34 @@ def trigger_batch_status():
         batch_trigger = True
     return batch_trigger
 
-
+# Widget functionality code -- handles directories
 def choose_folder():
 
-    folder_path = filedialog.askdirectory()
+    folder_path = ctk.filedialog.askdirectory()
     path_var.set(folder_path)
 
-@njit
-def show_message(message):
-    top = ctk.CTkToplevel()
-
-    # Calculate screen dimensions
-    screen_width = top.winfo_screenwidth()
-    screen_height = top.winfo_screenheight()
-    
-    # Calculate window dimensions and position to center it on the screen
-    width = 450
-    height = 200
-    x = (screen_width + width) // 2
-    y = (screen_height + height - 450) // 1
-    
-    top.geometry(f"{width}x{height}+{x}+{y}")  # Set geometry to center the window
-    top.focus()  # Ensure the window gets focus
-
-    top.title("Processing Information")
-    label = ctk.CTkLabel(top, text=message, width=200, height=200, anchor='center')
-    label.pack(padx=0, pady=0)
-    
-
+# Widget functionality code -- runs the main function 
 def batch():
+
     global start
+    global imCount
+    imCount = 0
+    pathCount = 1
     start = time.time()
+
     if batch_trigger == True:
 
         paths = [os.path.normpath(os.path.join(path_var.get(), f.name)) for f in os.scandir(path_var.get()) if f.is_dir()] # extracts paths from parent folder in proper format
         for path in natsorted(paths): # Natural sorts paths, so that the second path would be "Folder 2", not "Folder 10"
-            run_program(path)
+            imCount += run_program(path, pathCount)
+            pathCount += 1
         
-        message = f"Processed {len(paths) * 429} images in {"%0.6f" % (time.time() - start)} seconds.\nAverage Process Time: {"%0.6f" % ((time.time() - start) / len(paths))} seconds."
-        show_message(message)
+        print(f"~Processed {imCount} images in {"%0.3f" % (time.time() - start)} seconds.\n~Average Process Time: {"%0.3f" % ((time.time() - start) / len(paths))} seconds.")
 
     else:
-        run_program(path_var.get())
+        imCount += run_program(path_var.get(), 0)
 
-        message = f"Processed {429} images in {"%0.6f" % (time.time() - start)} seconds."
-        show_message(message)
+        print(f"~Processed {imCount} images in {"%0.3f" % (time.time() - start)} seconds.")
 
 
 ##########################
@@ -383,34 +401,33 @@ def batch():
 ##########################
 
 # Create the main window
-#root = ctk.CTk()
 root.title("Smart Table Plant Image Analysis")
-root.minsize(400, 400)
-root.resizable(width=False, height=False)
+root.minsize(880, 260) # minimum resolution
+root.resizable(width=False, height=False) # window is NOT resizeable
 
 # Create a label and entry to display the selected folder path
-path_var = ctk.StringVar()
+path_var = ctk.StringVar() 
 path_label = ctk.CTkLabel(root, text="Selected Folder Path:")
-path_label.pack()
-path_entry = ctk.CTkEntry(root, textvariable=path_var, width=300, corner_radius=8)
-path_entry.pack()
+path_label.place(x=30, y=10)
+path_entry = ctk.CTkEntry(root, textvariable=path_var, width=690, corner_radius=8)
+path_entry.place(x=160, y=10)
 
 # Create a button to choose the folder path
-choose_button = ctk.CTkButton(master=root, text="Choose Folder", command=choose_folder, width=200, corner_radius=8).place(relx=0.25, rely=0.2)
+choose_button = ctk.CTkButton(master=root, text="Choose Folder", command=choose_folder, width=200, corner_radius=8).place(x=30, y=60)
 
 # Create a button to run the full analysis
-run_button = ctk.CTkButton(master=root, text="Run Analysis", command=batch, width=200, corner_radius=8).place(relx=0.25, rely=0.3)
+run_button = ctk.CTkButton(master=root, text="Run Analysis", command=batch, width=200, corner_radius=8).place(x=30, y=100)
 
 # Create a checkbox to enable batch processing
 batch_box = ctk.CTkCheckBox(master=root, text="Enable Batch Processing", command=trigger_batch_status, checkbox_width=30, checkbox_height=30, corner_radius=5)
-batch_box.place(relx=0.25, rely=0.4)
+batch_box.place(x=30, y=140)
 
 # Create a checkbox to enable image saving
 save_box = ctk.CTkCheckBox(master=root, text="Enable Image Saving", command=save_image_trigger, checkbox_width=30, checkbox_height=30, corner_radius=5)
-save_box.place(relx=0.25, rely=0.5)
+save_box.place(x=30, y=180)
 
-# Debug Window Initialization
-debug_window = DebugWindow(root)
+# Initialize the debug window within the root window
+debug_window = DebugWindow(root=root)
 
 def clear():
     debug_window.clear()
@@ -418,23 +435,7 @@ def clear():
 # This button is only down here because the debug window needs to be intialized
 # Along with the clear() method which also requires the debug window to be intialized
 clear_debug = ctk.CTkButton(master=root, text="Clear Debug Window", command=clear, width=200, corner_radius=8)
-clear_debug.place(relx=0.25, rely=0.6)
-
-
-def center_window(window):
-    window.update_idletasks()
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
-    #width = window.winfo_width() - 50
-    #height = window.winfo_height()
-    width = 600
-    height = 200
-    x = (screen_width + width - 200) // 2
-    y = (screen_height + height - 800) // 1
-    window.geometry(f"{width}x{height}+{x}+{y}")
-
-# Center debug window when shown
-debug_window.bind("<Map>", lambda e: center_window(debug_window))
+clear_debug.place(x=30, y=220)
 
 # Start the Tkinter event loop
 root.mainloop()
