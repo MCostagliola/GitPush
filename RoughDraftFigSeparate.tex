@@ -1,0 +1,227 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath} % for 'bmatrix' environment
+\usepackage{graphicx}
+\usepackage[colorlinks=true,linkcolor=blue]{hyperref}
+\usepackage{caption} % for \captionof
+\usepackage{float}
+\usepackage{array}
+\usepackage{svg}
+
+\begin{document}
+
+\section*{Materials and Methods 1}
+\subsection*{Software 1.1}
+\hspace{1cm}Image analysis and data extraction were completed through a Python script running on Python v3.12.4, with the following packages: PlantCV v4.2.1, OpenCV v4.10.0.84, natsort v8.4.0, NumPy v1.26.4, XlsxWriter v3.2.0, along with modules from the Python Standard Library. A custom graphical user interface (GUI) was made using CustomTkinter v5.2.2. Data plots were created using Microsoft Excel v2406. All images used were captured at a resolution of 640x480, yielding a total of 307,200 pixels per image.
+
+\subsection*{Light Intensity Normalization 1.2}
+\hspace{1cm}To eliminate discrepancies in the semantic segmentation process, a method of image classification where every pixel is assigned a class or in our case, assigned to be part of a plant or not, caused by shadows or overexposure on the input images, the light intensity values of each image were normalized. Input images are converted from the RGB model (\hyperref[fig:species_rgb]{Fig. 3}), a color model in which the image's red, green, and blue components are separated into three channels, to the YCbCr model (\hyperref[fig:species_ycrcb]{Fig. 4}), a color model in which the luminance, blue chrominance, and red chrominance are split into three channels. The luminance channel, Y, is then separated from the chrominance channels, Cb and Cr (\hyperref[fig:species_Y]{Fig. 5}). Let \(\ I \) be a column vector representing the width and height of the input image.
+\begin{equation}
+I = \begin{bmatrix}
+Width\\
+Height
+\end{bmatrix}•
+\end{equation}
+
+Consider the matrix \(\ Y \), which contains the luminance data for every pixel in the input image:
+\begin{equation}
+Y = \begin{bmatrix}
+Y_{{1},{1}} & Y_{{1},{2}} & Y_{{1},{3}} & \dots & Y_{{1},{I_{\text{Width}}}} \\
+Y_{{2},{1}} & Y_{{2},{2}} & Y_{{2},{3}} & \dots & Y_{{2},{I_{\text{Width}}}} \\
+Y_{{3},{1}} & Y_{{3},{2}} & Y_{{3},{3}} & \dots & Y_{{3},{I_{\text{Width}}}} \\
+\vdots & \vdots & \vdots & \ddots & \vdots \\
+Y_{{I_{\text{Height}}},{1}} & Y_{{I_{\text{Height}}},{2}} & Y_{{I_{\text{Height}}},{3}} & \dots & Y_{{I_{\text{Height}}},{I_{\text{Width}}}}
+\end{bmatrix} ^ {I_\text{Height}\text{x}I_\text{Width}}
+\end{equation}
+
+Let \( Y(i, j) \) denote the element in the \( i \)-th row and \( j \)-th column of matrix \( Y \). To normalize the light intensity, we utilize a Difference of Gaussians approach. This involves applying a Gaussian blur to the image, in our case \(\ Y \), and subtracting the resultant matrix which contains the lower-frequency blurred luminance values from the original image. We derive an approximate kernel for the convolution from Pascal's triangle
+\[
+\begin{array}{ccccccccccccccc}
+&&&&&&& 1 &&&&&&& \\
+&&&&&& 1 && 1 &&&&&& \\
+&&&&& 1 && 2 && 1 &&&&& \\
+&&&& 1 && 3 && 3 && 1 &&&& \\
+&&& 1 && 4 && 6 && 4 && 1 &&& 
+\end{array}
+\]
+Then we perform element-wise multiplication
+\begin{equation}
+\begin{bmatrix}
+1\\
+4\\
+6\\
+4\\
+1
+\end{bmatrix} *
+\begin{bmatrix}
+1 & 4 & 6 & 4 & 1\\
+1 & 4 & 6 & 4 & 1\\
+1 & 4 & 6 & 4 & 1\\
+1 & 4 & 6 & 4 & 1\\
+1 & 4 & 6 & 4 & 1
+\end{bmatrix}•
+\end{equation}
+Resulting in the kernel \(\omega \)
+\begin{equation}
+\omega = 
+\begin{bmatrix}
+1 & 4 & 6 & 4 & 1 \\
+4 & 16 & 24 & 16 & 4 \\
+6 & 24 & 36 & 24 & 6 \\
+4 & 16 & 24 & 16 & 4 \\
+1 & 4 & 6 & 4 & 1
+\end{bmatrix}•
+\end{equation}
+\begin{equation}
+\text{Given that }\sum_{i=1}^{5}\sum_{j=1}^{5}\omega(i, j) = 256
+\end{equation}
+However, we want our Gaussian kernel's sum to normalize our kernel's sum to 1 in order to preserve the original brightness of the image, thus the approximate Gaussian Kernel \( \omega \) is defined as
+\begin{equation}
+\omega = \frac{1}{256} \begin{bmatrix}
+1 & 4 & 6 & 4 & 1 \\
+4 & 16 & 24 & 16 & 4 \\
+6 & 24 & 36 & 24 & 6 \\
+4 & 16 & 24 & 16 & 4 \\
+1 & 4 & 6 & 4 & 1
+\end{bmatrix}
+\end{equation}
+For the resultant matrix of the convolution between \(\omega \) and\(\ Y \) have the same dimensions as \(\ Y \) we must implement some sort of edge handling. We chose to pad the input matrix with the following paddings
+\begin{eqnarray}
+\text{pad}_{x} =\biggl  \lfloor \frac{\omega_{w}-1}{2}\biggl \rfloor\\
+\text{pad}_{y} = \biggl \lfloor \frac{\omega_{h}-1}{2}\biggl \rfloor\\
+\text{pad}_{x} = \biggl \lfloor \frac{5-1}{2}\biggl \rfloor = 2\\
+\text{pad}_{y} = \biggl \lfloor \frac{5-1}{2}\biggl \rfloor = 2
+\end{eqnarray}
+Let \(\ Y_{p} \) be the padded version of \(\ Y \), where \(\text{pad}_{x} \) and \(\text{pad}_{y} \) are added to all borders of \(\ Y \), where the padding is populated with values of 0. The Gaussian blurred matrix \( R(x, y) \) is then defined as
+\begin{equation}
+R(x, y) = (\omega * Y_{p})(x, y) = \sum_{i=1}^{5} \sum_{j=1}^{5} \omega(i, j) \cdot Y_{p}(x-i, y-j)
+\end{equation}
+Where\(\ x \) and\(\ y \) correspond to an element in\(\ Y \), and \(\omega \) has the indices \(\ [1, 5] \). We remove the padding surrounding \(\ R \) to match the dimensions of matrix\(\ Y \). Next we compute the Difference of Gaussians by subtracting the resultant matrix of the convolution,\(\ R \), from the original matrix,\(\ Y \).
+\begin{equation}
+Y  =  Y  -  R
+\end{equation}
+
+And after performing the Difference of Gaussians, we are left with a grayscale image whose foreground features have been enhanced. Next we perform scalar addition and add \( 100 \) to each element in the matrix \( R \) in order to increase the brightness for a clearer separation of the background and the subject of the image.
+\begin{equation}
+Y  = Y + 100
+\end{equation}
+
+Now that the normalization has been performed, we merge all three color channels, Y, Cr, and Cb, back together, and convert the image from the color model YCrCb to RGB. Resulting in the final normalized image (\hyperref[fig:species_gaussdiff]{Fig. 6}).
+
+\subsection*{Image Processing 1.3}
+\hspace{1cm}Our analysis was strongly supplemented and improved by the use of PlantCV, an open-source Python library for phenotyping plants. PlantCV's modular capability allows for a workflow to be easily created for converting images from RGB to binary. First, we employed the use of rgb2gray\_lab method to convert the normalized images to the CIELAB color model. The 'A' channel of the CIELAB image, which contains all green-magenta values, is then isolated  (\hyperref[fig:species_lab]{Fig. 7}). This channel provides the clearest, sharpest, and most accurate segmentation of the plant from the image's background, compared to the "L" or "B" channels. The next step in the process is to convert the image into a binary image. This is facilitated by means of the thresholding.otsu method, in which the specified object type was "dark"  (\hyperref[fig:species_otsu]{Fig. 8}).
+
+The closing operation uses a specified kernel \( K \), defined as
+\begin{equation}
+K = \begin{bmatrix}
+0 & 1 & 1 & 0 \\
+1 & 1 & 1 & 1 \\
+1 & 1 & 1 & 1 \\
+0 & 1 & 1 & 0
+\end{bmatrix}
+\end{equation}
+The closing operation was performed on the binary mask of the plant using the kernel \( K \) (\hyperref[fig:species_closed]{Fig. 7}). The kernel \( K \) is convolved with the binary mask to suppress dark noise and refine the segmentation results. The end result is a matrix \(\ B \) which contains all pixel color values, since the image is now binary, the values are either 0, which indicates a pixel not part of the plant class, or 255, which is part of the plant class.
+\begin{equation}
+B = \begin{bmatrix}
+0 & 0 & 0 & \dots  & 0\\
+0 & 0 & 0 & \dots & 0\\
+\vdots & \vdots & \vdots & \ddots & \vdots\\
+0 & 0 & 0 & \dots & 0
+\end{bmatrix} ^ {I_\text{Height}\text{x}I_\text{Width}}
+\end{equation}
+
+An opening operation was not needed as each plant's container was covered with black landscaping fabric, as well as the bed the plants were placed in. These precautions helped to mitigate and heavily reduced any noise that may have occured around the plant. PlantCV played an enormous role in facilitating an efficient and elegant method for image processing.
+
+\subsection*{Data Extraction 1.4}
+\hspace{1cm} We extracted data regarding both the motion as well as the size of the plant. To save on resources and time, if \( B_{i} \), where B is the matrix of binary pixel data and i is the image index, contains fewer than 500 elements with the value 255, we assume this image does not contain a plant. To compute the motion of a plant, we subtract the previous image's matrix from the current image's matrix:
+\begin{equation}
+\text{Motion}(B_{i})\text{:}\{i \mid i > 1\} = |S(B_{i}) - S(B_{i-1})|
+\end{equation}
+where \( S(B_{i}) \) is defined as:
+\[
+S(B_{i}) = \sum_{j=1}^{I_{\text{Height}}} \sum_{k=1}^{I_{\text{Width}}} 
+\begin{cases}
+B_{i}(j, k), & \text{if } B_{i}(j, k) = 255, \\
+0, & \text{otherwise}.
+\end{cases}
+\]
+Here, \( S(B_{i}) > 0 \) if there exist pixels in \( B_{i} \) with intensity 255. This allows us to detect significant changes between consecutive images, indicating motion in the plant. This is repeated for every image in the experiment, yeilding a 1 dimensional matrix containing the pixel sums for each image. Let\(\ I_{P} \) be the matrix
+\begin{equation}
+I_{P} = 
+\begin{bmatrix}
+S(B_{1}),&S(B_{2}),&S(B_{3}),&\dots,&S(B_{\text{NumImages}})
+\end{bmatrix}•
+\end{equation}
+We write each element of \(\ I_{P} \) to an excel workbook by means of XlsxWriter, yeilding the following figures
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{"C:/IALR SMART TABLE/publication/Picture1.jpg"}
+  \caption{Plant Motion}
+  \label{fig:species_rgb}
+\end{figure}
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{"C:/IALR SMART TABLE/publication/Picture2.jpg"}
+  \caption{Plant Size}
+  \label{fig:species_ycrcb}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.45\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{"C:/IALR SMART TABLE/PepperDataAnalysis/Watered Plants/Plant4/03-28-2024_21-59-Rep182.jpg"}
+  \caption{Species Name in RGB}
+  \label{fig:species_rgb}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.45\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{"C:/IALR SMART TABLE/publication/YCrCb.jpg"}
+  \caption{Species Name in YCrCb}
+  \label{fig:species_ycrcb}
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.45\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{C:/IALR SMART TABLE/publication/Y.jpg}
+  \caption{Isolated Y channel of YCrCb}
+  \label{fig:species_Y}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.45\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{C:/IALR SMART TABLE/publication/norm.jpg}
+  \caption{Normalized Light Intensity}
+  \label{fig:species_gaussdiff}
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.45\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{"C:/IALR SMART TABLE/publication/cielab.jpg"}
+  \caption{Isolated A channel of CIELAB}
+  \label{fig:species_lab}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.45\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{"C:/IALR SMART TABLE/publication/otsu.jpg"}
+  \caption{Species Name after otsu thresholding}
+  \label{fig:species_otsu}
+\end{minipage}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics[scale=0.3]{"C:/IALR SMART TABLE/publication/closed.jpg"}
+\caption{Species Name after closing operation}
+\label{fig:species_closed}
+\end{figure}•
+
+\end{document}
